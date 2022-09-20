@@ -153,4 +153,159 @@ To be able to use the LoRa® functionality, we need to first update the firmware
 
 There is a tutorial on Arduino's documentation website to connect your Portenta to TTN: [https://docs.arduino.cc/tutorials/portenta-vision-shield/connecting-to-ttn](https://docs.arduino.cc/tutorials/portenta-vision-shield/connecting-to-ttn)
 
-Once you have successfully sent your first payload from the Arduino Portenta H7 to TheThingsNetwork, you are going to switch the IDE to use OpenMV IDE.
+Once you have successfully sent your first payload from the Arduino Portenta H7 to TheThingsNetwork, we are going to use OpenMV IDE and start writing our custom business logic.
+
+## Embedded firmware
+
+Now that your LoRa modem is updated and your TTN application is set up, we can write our custom business logic.
+Although we can write all the code in Arduino, we've chosen to use OpenMV IDE to do so. OpenMV IDE easily enables the video display which will help us to debug the application as we write it.
+
+To download the OpenMV firmware, go to the **Deployment** tab in Edge Impulse studio and select the **OpenMV Firmware**:
+
+![Deployment](docs/studio-deployment.png)
+
+Save the generated .zip file and flash your Portenta with it:
+
+![Flash](docs/openMV-flash.png)
+
+Select the `..._firmware_arduino_portenta.bin` firmware in your extracted .zip file and click on **Run**:
+
+![Select firmware](docs/openmv-select-firmware.png)
+
+More info on the Edge Impulse documentation web page: [OpenMV deployments](https://docs.edgeimpulse.com/docs/deployment/running-your-impulse-openmv)
+
+Now feel free to have a look at the provided `ei_object_detection.py` example to get a good understanding of how object detection is performed.
+
+Now create a new file, such as `TTNPeopleCounter.py` and copy-paste the following code:
+
+
+
+```
+# Untitled - By: luisomoreau - Thu Aug 4 2022
+
+# Edge Impulse - OpenMV Object Detection Example
+
+import sensor, image, time, os, tf, math, uos, gc
+from lora import *
+
+sensor.reset()                         # Reset and initialize the sensor.
+sensor.set_pixformat(sensor.GRAYSCALE)    # Set pixel format to RGB565 (or GRAYSCALE)
+sensor.set_framesize(sensor.QVGA)      # Set frame size to QVGA (320x240)
+sensor.set_windowing((240, 240))       # Set 240x240 window.
+sensor.skip_frames(time=2000)
+
+lora = Lora(band=BAND_EU868, poll_ms=60000, debug=False)       # Let the camera adjust.
+
+print("Firmware:", lora.get_fw_version())
+print("Device EUI:", lora.get_device_eui())
+print("Data Rate:", lora.get_datarate())
+print("Join Status:", lora.get_join_status())
+
+appEui = "0000000000000000" # Add your App EUI here
+appKey = "XXXXXXXXXXXXXXXX" # Add your App Key here
+
+net = None
+labels = None
+min_confidence = 0.5
+
+peopleCounter = 0
+
+try:
+    # Load built in model
+    labels, net = tf.load_builtin_model('trained')
+except Exception as e:
+    raise Exception(e)
+
+try:
+    lora.join_OTAA(appEui, appKey, timeout=20000)
+    # Or ABP:
+    #lora.join_ABP(devAddr, nwkSKey, appSKey, timeout=5000)
+# You can catch individual errors like timeout, rx etc...
+except LoraErrorTimeout as e:
+    print("Something went wrong; are you indoor? Move near a window and retry")
+    print("ErrorTimeout:", e)
+except LoraErrorParam as e:
+    print("ErrorParam:", e)
+
+print("Connected.")
+lora.set_port(3)
+
+colors = [ # Add more colors if you are detecting more than 7 types of classes at once.
+    (255,   0,   0),
+    (  0, 255,   0),
+    (255, 255,   0),
+    (  0,   0, 255),
+    (255,   0, 255),
+    (  0, 255, 255),
+    (255, 255, 255),
+]
+
+clock = time.clock()
+now = time.ticks_ms()
+while(True):
+    clock.tick()
+
+    img = sensor.snapshot()
+
+    # detect() returns all objects found in the image (splitted out per class already)
+    # we skip class index 0, as that is the background, and then draw circles of the center
+    # of our objects
+
+    for i, detection_list in enumerate(net.detect(img, thresholds=[(math.ceil(min_confidence * 255), 255)])):
+        if (i == 0): continue # background class
+        if (len(detection_list) == 0): continue # no detections for this class?
+        peopleCounter=len(detection_list)
+        #print("********** %s **********" % labels[i])
+        for d in detection_list:
+
+            [x, y, w, h] = d.rect()
+            center_x = math.floor(x + (w / 2))
+            center_y = math.floor(y + (h / 2))
+            #print('x %d\ty %d' % (center_x, center_y))
+            img.draw_circle((center_x, center_y, 12), color=colors[i], thickness=2)
+
+    #print(clock.fps(), "fps", end="\n\n")
+    #print(peopleCounter, end="\n\n")
+
+    # Send a message every minute
+    uplink_interval = 60000
+
+    if time.ticks_ms() - now > uplink_interval:
+        print("Sending LoRa payload")
+        try:
+            # Uplink only
+            lora.send_data(peopleCounter.to_bytes(1, 'big'), False)
+
+            # Uplink + downlink request
+            #if lora.send_data(peopleCounter.to_bytes(1, 'big'), True):
+                #print("Message confirmed.")
+            #else:
+                #print("Message wasn't confirmed")
+
+        except LoraErrorTimeout as e:
+            print("ErrorTimeout:", e)
+
+        # Reset the clock
+        now = time.ticks_ms()
+
+
+    # Read downlink messages
+    # Not needed here
+    #if (lora.available()):
+        #data = lora.receive_data()
+        #if data:
+            #print("Port: " + data["port"])
+            #print("Data: " + data["data"])
+    #lora.poll()
+```
+
+Make sure to replace your application EUI and KEY with your own:
+
+```
+appEui = "0000000000000000" # Add your App EUI here
+appKey = "XXXXXXXXXXXXXXXX" # Add your App Key here
+```
+
+Et voilà, you are now ready to detect the faces present in front of your camera and forward the counter through LoRaWAN to retrieve it on your TheThingsNetwork application:
+
+![Results](docs/ttn-people-counter.gif)

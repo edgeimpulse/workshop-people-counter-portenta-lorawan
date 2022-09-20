@@ -18,8 +18,8 @@ print("Device EUI:", lora.get_device_eui())
 print("Data Rate:", lora.get_datarate())
 print("Join Status:", lora.get_join_status())
 
-appEui = "0000000000000001" # Add your App EUI here
-appKey = "54F29F68BD8AE99603F750FD5BB1ED33" # Add your App Key here
+appEui = "0000000000000000" # Add your App EUI here
+appKey = "XXXXXXXXXXXXXXXX" # Add your App Key here
 
 net = None
 labels = None
