@@ -1,7 +1,5 @@
 # Workshop - People Counter using the Arduino Portenta and LoRaWAN (TheThingsNetwork)
 
-*This workshop has been prepared for TheThingConference 2022.*
-
 In this tutorial, you will learn how to build a people counter using the Arduino Portenta H7's camera and send the inference results over LoRaWan.
 
 Here is the list of tools and material used for this workshop:
